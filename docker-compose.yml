@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ompic
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD}
+      POSTGRES_DB: ompic
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: [db]
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://ompic:${POSTGRES_PASSWORD}@db:5432/ompic
+      AUTH_SECRET: ${AUTH_SECRET:?définir AUTH_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CRON_SECRET: ${CRON_SECRET:?définir CRON_SECRET}
+    volumes:
+      - storage:/app/storage
+
+  # Déclenche l'agent IA toutes les 6 heures
+  scheduler:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+    entrypoint: ["sh", "-c", "while true; do sleep 21600; curl -fsS -X POST -H \"Authorization: Bearer $$CRON_SECRET\" http://app:3000/api/agent/run || true; done"]
+
+volumes:
+  pgdata:
+  storage:
