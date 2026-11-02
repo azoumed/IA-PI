@@ -1,5 +1,5 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
@@ -16,6 +16,21 @@ function secret() {
   return new TextEncoder().encode(s);
 }
 
+/**
+ * Le cookie n'est marqué « Secure » que si le site est servi en HTTPS (directement ou derrière
+ * un reverse proxy qui transmet X-Forwarded-Proto). Sinon le navigateur le refuserait en HTTP
+ * et chaque clic renverrait vers la page de connexion. COOKIE_SECURE=true|false force le choix.
+ */
+async function isSecureRequest() {
+  const forced = process.env.COOKIE_SECURE;
+  if (forced === "true") return true;
+  if (forced === "false") return false;
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto")?.split(",")[0].trim();
+  if (proto) return proto === "https";
+  return (h.get("origin") ?? "").startsWith("https://");
+}
+
 export async function createSession(userId: number) {
   const token = await new SignJWT({ sub: String(userId) })
     .setProtectedHeader({ alg: "HS256" })
@@ -25,7 +40,7 @@ export async function createSession(userId: number) {
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: await isSecureRequest(),
     path: "/",
     maxAge: SESSION_DAYS * 24 * 3600,
   });
